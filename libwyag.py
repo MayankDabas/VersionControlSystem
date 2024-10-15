@@ -23,8 +23,21 @@ from math import ceil
 argparse = argparse.ArgumentParser(description="Parse the commands needed by the program")
 argsubparsers = argparse.add_subparsers(title="Command", dest="command")
 argsubparsers.required = True
+
+# argparser for init command
 argsp = argsubparsers.add_parser("init", help="Initialize a new, empty repositoyr")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
+
+# argparser for cat-file command
+argsp = argsubparsers.add_parser("cat-file", help="Provide content of repository objects")
+argsp.add_argument("type", metavar="type", choices=["blob", "commit", "tag", "tree"], help="Specify the type")
+argsp.add_argument("object", metavar="object", help="The object to display")
+
+# argparser for hash-object command
+argsp = argsubparsers.add_parser("hash-object", help="Compute object ID and optionally creates a blob from a file")
+argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit", "tag", "tree"], default="blob", help="Specify the type")
+argsp.add_argument("-w", dest="write", action="store_true", help="Write the object into the database")
+argsp.add_argument("path", help="Read object from <file>")
 
 #------------------------------------------------------------------------------------------------#
 #                                     Classes                                                    #
@@ -139,6 +152,50 @@ class GitObject(object):
         by subclasses to define specific initialization logic (e.g., setting default values).
         """
         pass
+
+class GitBlob(GitObject):
+    """
+    Represents a Git blob object, which stores the contents of a file.
+
+    A Git blob is a binary large object that contains the raw data of a file in the repository.
+    It does not store metadata such as filenames or directories, only the file content itself.
+    This class provides methods to serialize and deserialize the blob data, inheriting common 
+    behavior from the `GitObject` base class.
+
+    Attributes:
+        object_type (bytes): A byte string indicating the type of this object ('blob').
+        blobdata (bytes): The raw binary content of the file stored in the blob.
+
+    Methods:
+        serialize(): Converts the blob object into a byte string for storage.
+        deserialize(data): Loads the raw binary content into the blob object.
+    """
+
+    object_type = b'blob'
+
+    def serialize(self):
+        """
+        Converts the blob object into a byte string.
+
+        This method serializes the blob's data (stored in `self.blobdata`) into a byte string.
+        The serialized form is used when storing the object in the Git repository.
+
+        Returns:
+            bytes: The raw binary content of the blob.
+        """
+        return self.blobdata
+    
+    def deserialize(self, data):
+        """
+        Loads the raw binary data into the blob object.
+
+        This method populates the `blobdata` attribute with the given binary content.
+        It is used when reading the object from the Git repository.
+
+        Args:
+            data (bytes): The raw binary content to be loaded into the blob.
+        """
+        self.blobdata = data
 
 #------------------------------------------------------------------------------------------------#
 #                                     Methods                                                    #
@@ -414,8 +471,71 @@ def object_write(obj, repo=None):
     
     return sha
 
+def object_find(repo, name, object_type=None, follow=True):
+    """
+    Finds and returns the SHA-1 hash corresponding to the given object name.
+
+    This function is intended to locate a Git object by its name, such as a branch name,
+    tag, or partial SHA. It performs name resolution to map the input to the full SHA-1 hash
+    of the corresponding Git object. Optional parameters allow filtering by object type and 
+    whether to follow symbolic references (e.g., tags).
+
+    Args:
+        repo (GitRepository): The repository in which the object is searched.
+        name (str): The name of the object (branch, tag, or SHA prefix) to resolve.
+        object_type (str, optional): The expected type of the object (e.g., 'commit', 'tree').
+                                     If provided, the function ensures the resolved object matches
+                                     this type. Defaults to None.
+        follow (bool, optional): If True, the function will follow symbolic references (e.g., tags). 
+                                 Defaults to True.
+
+    Returns:
+        str: The resolved SHA-1 hash of the object.
+
+    Example:
+        >> repo = GitRepository("/path/to/repo")
+        >> sha = object_find(repo, "HEAD")
+        >> print(sha)  # Prints the SHA-1 hash for the current commit
+    """
+    return name
+
+def cat_file(repo, obj, object_type=None):
+    """
+    Reads and prints the serialized content of a Git object to standard output.
+
+    This function locates a Git object using the provided name or SHA, reads it from the
+    repository, and writes its serialized content directly to `sys.stdout` in binary mode. 
+    This mimics the behavior of the `git cat-file` command, which allows viewing the raw 
+    contents of objects such as commits, trees, blobs, or tags.
+
+    Args:
+        repo (GitRepository): The repository from which to read the object.
+        obj (str): The name or SHA-1 hash of the object to display.
+        object_type (str, optional): The expected type of the object (e.g., 'blob', 'commit'). 
+                                     Defaults to None.
+
+    Raises:
+        Exception: If the object cannot be found or the type is incorrect.
+
+    Example:
+        >> repo = GitRepository("/path/to/repo")
+        >> cat_file(repo, "HEAD")
+        # Prints the content of the current commit to stdout.
+    """
+    obj = object_read(repo, object_find(repo, obj, object_type=object_type))
+    sys.stdout.buffer.write(obj.serialize())
+
+
+#------------------------------------------------------------------------------------------------#
+#                                     Bridging Functions                                         #
+#------------------------------------------------------------------------------------------------#
+
 def cmd_init(args):
     repo_create(args.path)
+
+def cmd_cat_file(args):
+    repo = repo_find()
+    cat_file(repo, args.object, object_type=args.type.encode())
 
 def main(argv=sys.argv[1:]):
     """
