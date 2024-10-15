@@ -1,3 +1,6 @@
+#------------------------------------------------------------------------------------------------#
+#                                     Import Statements                                          #
+#------------------------------------------------------------------------------------------------#
 import argparse
 import collections
 import configparser
@@ -13,11 +16,19 @@ from datetime import datetime
 from fnmatch import fnmatch
 from math import ceil
 
+#------------------------------------------------------------------------------------------------#
+#                                     Argument Parser                                            #
+#------------------------------------------------------------------------------------------------#
+
 argparse = argparse.ArgumentParser(description="Parse the commands needed by the program")
 argsubparsers = argparse.add_subparsers(title="Command", dest="command")
 argsubparsers.required = True
 argsp = argsubparsers.add_parser("init", help="Initialize a new, empty repositoyr")
 argsp.add_argument("path", metavar="directory", nargs="?", default=".", help="Where to create the repository.")
+
+#------------------------------------------------------------------------------------------------#
+#                                     Classes                                                    #
+#------------------------------------------------------------------------------------------------#
 
 class GitRepository:
     """
@@ -58,6 +69,80 @@ class GitRepository:
             vers = int(self.config.get("core", "repositoryformatversion"))
             if vers != 0:
                 raise Exception(f"Unsupported repositoryformatversion {vers}")
+
+class GitObject(object):
+    """
+    A generic base class for Git objects, providing a template for serialization and deserialization.
+
+    This class is meant to be subclassed by specific types of Git objects such as commits, blobs, 
+    trees, and tags. It ensures that all Git objects implement the necessary methods to handle 
+    data conversion between raw bytes and meaningful object formats.
+
+    Subclasses must override the `serialize()` and `deserialize()` methods to provide specific 
+    implementations. The `init()` method offers a default way to initialize an empty object, which 
+    can be customized by subclasses if needed.
+
+    Attributes:
+        data (bytes): The raw byte data of the Git object (if provided during initialization).
+    """
+
+    def __init__(self, data=None):
+        """
+        Initializes the GitObject instance.
+
+        If `data` is provided, the object will load its content using the `deserialize()` method.
+        Otherwise, it will initialize an empty object by calling the `init()` method.
+
+        Args:
+            data (bytes, optional): The raw byte data used to load the object. Defaults to None.
+        """
+        if data != None:
+            self.deserialize(data)
+        else:
+            self.init()
+    
+    def serialize(self, repo):
+        """
+        Converts the object's data into a serialized format.
+
+        This method must be implemented by subclasses to define how the object 
+        should be converted from its internal representation to a byte string.
+
+        Args:
+            repo: A reference to the repository object, which might be needed for serialization.
+
+        Raises:
+            Exception: If the method is not implemented in a subclass.
+        """
+        raise Exception("Unimplemented!")
+    
+    def deserialize(self, data):
+        """
+        Loads the object's data from a serialized byte string.
+
+        This method must be implemented by subclasses to define how the byte string 
+        data should be converted into the object's internal representation.
+
+        Args:
+            data (bytes): The raw byte data used to populate the object's attributes.
+
+        Raises:
+            Exception: If the method is not implemented in a subclass.
+        """
+        raise Exception("Unimplemented!")
+    
+    def init(self):
+        """
+        Initializes a new, empty object.
+
+        This method provides a default behavior of doing nothing (`pass`), but can be overridden 
+        by subclasses to define specific initialization logic (e.g., setting default values).
+        """
+        pass
+
+#------------------------------------------------------------------------------------------------#
+#                                     Methods                                                    #
+#------------------------------------------------------------------------------------------------#
 
 def repo_path(repo, *path):
     """
@@ -214,6 +299,68 @@ def repo_find(path=".", required=True):
             return None
     
     return repo_find(parent, required)
+
+def object_read(repo, sha):
+    """
+    Reads a Git object from the repository and returns an instance of the appropriate object type.
+
+    This function locates the compressed object file in the `.git/objects/` directory based on the 
+    given SHA-1 hash. It decompresses the content, extracts the object type and size from the header, 
+    and validates the object size. Depending on the type of the object (commit, tree, tag, or blob), 
+    it creates and returns an instance of the corresponding class.
+
+    Args:
+        repo (GitRepository): The repository object from which the object is being read.
+        sha (str): The 40-character SHA-1 hash of the object to be retrieved.
+
+    Returns:
+        GitObject: An instance of the corresponding Git object (e.g., GitCommit, GitTree, GitBlob).
+        None: If the object file is not found.
+
+    Raises:
+        Exception: If the object type is unknown or the object size is malformed.
+
+    Example:
+        >>> repo = GitRepository("/path/to/repo")
+        >>> sha = "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+        >>> obj = object_read(repo, sha)
+        >>> print(type(obj))
+        <class '__main__.GitCommit'>
+
+    Explanation:
+        1. The function constructs the file path for the given SHA-1 hash inside the `.git/objects/` directory.
+        2. It decompresses the object file using `zlib`.
+        3. It extracts the object type and size from the header.
+        4. It validates the size of the object's content.
+        5. Based on the object type, it instantiates and returns the corresponding Git object.
+        6. If the object file is missing, it returns `None`.
+        7. If the type is unrecognized or the size is malformed, it raises an exception.
+    """
+    path = repo_file(repo, "objects", sha[0:2], sha[2:])
+
+    if not os.path.isfile(path):
+        return None
+    
+    with open(path, "rb") as f:
+        raw = zlib.decompress(f.read())
+
+        x = raw.find(b' ')
+        object_type = raw[0:x]
+
+        y = raw.find(b'\x00', x)
+        size = int(raw[x+1:y].decode("ascii"))
+        if size != len(raw) - y - 1:
+            raise Exception(f"Malformed object {sha}: bad length")
+        
+        match object_type:
+            case b'commit' : c=GitCommit
+            case b'tree' : c=GitTree
+            case b'tag' : c=GitTag
+            case b'blob' : c=GitBlob
+            case _:
+                raise Exception(f"Unknown type {object_type.decode("ascii")} for object {sha}")
+        
+        return c(raw[y + 1])
 
 def cmd_init(args):
     repo_create(args.path)
