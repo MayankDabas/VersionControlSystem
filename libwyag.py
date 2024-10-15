@@ -321,10 +321,10 @@ def object_read(repo, sha):
         Exception: If the object type is unknown or the object size is malformed.
 
     Example:
-        >>> repo = GitRepository("/path/to/repo")
-        >>> sha = "e83c5163316f89bfbde7d9ab23ca2e25604af290"
-        >>> obj = object_read(repo, sha)
-        >>> print(type(obj))
+        >> repo = GitRepository("/path/to/repo")
+        >> sha = "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+        >> obj = object_read(repo, sha)
+        >> print(type(obj))
         <class '__main__.GitCommit'>
 
     Explanation:
@@ -361,6 +361,58 @@ def object_read(repo, sha):
                 raise Exception(f"Unknown type {object_type.decode("ascii")} for object {sha}")
         
         return c(raw[y + 1])
+
+def object_write(obj, repo=None):
+    """
+    Serializes and writes a Git object to the repository, returning the object's SHA-1 hash.
+
+    This function takes a Git object, serializes its data, and constructs the object in the format:
+    `<object_type> <size>\x00<data>`. It then computes the SHA-1 hash of the object to uniquely 
+    identify it. If a repository is provided, the object is saved to the appropriate location in 
+    the `.git/objects/` directory, creating the necessary directories if needed. If the object 
+    already exists, it will not be written again.
+
+    Args:
+        obj (GitObject): The Git object to be serialized and stored (e.g., GitCommit, GitBlob).
+        repo (GitRepository, optional): The repository where the object should be saved. 
+                                        Defaults to None (for cases where we only need the SHA).
+
+    Returns:
+        str: The SHA-1 hash of the serialized object, which acts as a unique identifier.
+
+    Raises:
+        Exception: If there are issues creating directories or writing the file.
+
+    Example:
+        >> blob = GitBlob(b"Hello, World!")
+        >> repo = GitRepository("/path/to/repo")
+        >> sha = object_write(blob, repo)
+        >> print(sha)
+        e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+
+    Explanation:
+        1. The object is serialized using the `serialize()` method of the Git object.
+        2. The serialized data is formatted as: `<object_type> <size>\x00<data>`.
+        3. A SHA-1 hash of the object is computed to act as its unique identifier.
+        4. If a repository is provided:
+            - The object is written to the `.git/objects/` directory in the appropriate subdirectory.
+            - If necessary, directories are created.
+            - If the object already exists, it is not overwritten.
+        5. The function returns the computed SHA-1 hash.
+    """
+    data = obj.serialize()
+
+    object_format = object_format.object_type + b' ' + str(len(data)).encode() + b'\x00' + data
+    sha = hashlib.sha1(object_format).hexdigest()
+
+    if repo:
+        path = repo_file(repo, "objects", sha[0:2], sha[2:], mkdir=True)
+
+        if not os.path.exists(path):
+            with open(path, 'wb') as f:
+                f.write(zlib.compress(object_format))
+    
+    return sha
 
 def cmd_init(args):
     repo_create(args.path)
