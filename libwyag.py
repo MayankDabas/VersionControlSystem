@@ -197,6 +197,15 @@ class GitBlob(GitObject):
         """
         self.blobdata = data
 
+class GitCommit(GitObject):
+    pass
+
+class GitTag(GitObject):
+    pass
+
+class GitTree(GitObject):
+    pass
+
 #------------------------------------------------------------------------------------------------#
 #                                     Methods                                                    #
 #------------------------------------------------------------------------------------------------#
@@ -410,10 +419,10 @@ def object_read(repo, sha):
             raise Exception(f"Malformed object {sha}: bad length")
         
         match object_type:
-            case b'commit' : c=GitCommit
-            case b'tree' : c=GitTree
-            case b'tag' : c=GitTag
-            case b'blob' : c=GitBlob
+            case b'commit'      : c=GitCommit
+            case b'tree'        : c=GitTree
+            case b'tag'         : c=GitTag
+            case b'blob'        : c=GitBlob
             case _:
                 raise Exception(f"Unknown type {object_type.decode("ascii")} for object {sha}")
         
@@ -525,6 +534,17 @@ def cat_file(repo, obj, object_type=None):
     obj = object_read(repo, object_find(repo, obj, object_type=object_type))
     sys.stdout.buffer.write(obj.serialize())
 
+def object_hash(file, object_type, repo=None):
+    data = file.read()
+
+    match object_type:
+        case b'blob'    : obj = GitBlob(data)
+        case b'commit'  : obj = GitCommit(data)
+        case b'tag'     : obj = GitTag(data)
+        case b'tree'    : obj = GitTree(data)
+        case _          : raise Exception(f"Unknown type {object_type}")
+    
+    return object_write(obj, repo)
 
 #------------------------------------------------------------------------------------------------#
 #                                     Bridging Functions                                         #
@@ -536,6 +556,16 @@ def cmd_init(args):
 def cmd_cat_file(args):
     repo = repo_find()
     cat_file(repo, args.object, object_type=args.type.encode())
+
+def cmd_hash_object(args):
+    if args.write:
+        repo = repo_file()
+    else:
+        repo = None
+    
+    with open(args.path, "rb") as f:
+        sha = object_hash(f, args.type.encode(), repo)
+        print(sha)
 
 def main(argv=sys.argv[1:]):
     """
