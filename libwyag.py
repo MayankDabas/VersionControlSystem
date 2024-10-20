@@ -198,7 +198,44 @@ class GitBlob(GitObject):
         self.blobdata = data
 
 class GitCommit(GitObject):
-    pass
+    """
+    Represents a Git commit object and provides methods for serialization 
+    and deserialization using the Key-Value List with Message (KVLM) format.
+
+    This class extends the GitObject class and implements functionality to 
+    manage commit objects, which store metadata and messages in Git repositories.
+
+    Attributes:
+    -----------
+    object_type : bytes
+        A constant representing the type of the Git object, set to b'commit'.
+    kvlm : dict
+        A dictionary representing the parsed KVLM structure of the commit.
+        - Keys are bytes representing metadata fields.
+        - Values can be bytes or lists of bytes for fields with multiple entries.
+        - The commit message is stored under the None key.
+
+    Methods:
+    --------
+    deserialize(data):
+        Parses raw byte data of a commit object and populates the kvlm attribute.
+    
+    serialize():
+        Converts the kvlm attribute back into the raw byte format for storage.
+
+    init():
+        Initializes an empty dictionary for the kvlm attribute.
+    """
+    object_type = b'commit'
+
+    def deserialize(self, data):
+        self.kvlm = kvlm_parse(data)
+
+    def serialize(self):
+        return kvlm_serialize(self.kvlm)
+    
+    def init(self):
+        self.kvlm = dict()
 
 class GitTag(GitObject):
     pass
