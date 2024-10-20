@@ -577,7 +577,77 @@ def object_hash(file, object_type, repo=None):
     
     return object_write(obj, repo)
 
-def key_value_list_message(raw, start=0, _dict=None):
+def kvlm_serialize(kvlm):
+    """
+    Serializes a Key-Value List with Message (KVLM) dictionary into raw byte data.
+    
+    The function takes an ordered dictionary representing a KVLM structure, which 
+    is commonly used in Git commit and tag objects, and converts it back into the 
+    raw byte format used for storage.
+
+    It handles multi-line values by converting them into the continuation line 
+    format and combines all key-value pairs followed by the commit message.
+
+    Parameters:
+    -----------
+    kvlm : OrderedDict
+        An ordered dictionary containing the KVLM data to be serialized.
+        - Keys are bytes representing the metadata fields.
+        - Values can be bytes or lists of bytes for fields with multiple entries.
+        - The commit message should be stored under the None key.
+
+    Returns:
+    --------
+    bytes
+        The serialized byte string representing the KVLM structure.
+        - Key-value pairs are formatted as 'key value\\n', with multi-line values 
+          having continuation lines starting with a space.
+        - The commit message follows after a blank line.
+
+    Example:
+    --------
+    >> kvlm = collections.OrderedDict([
+    ..     (b'tree', b'abc123'),
+    ..     (b'parent', [b'def456', b'ghi789']),
+    ..     (b'author', b'John Doe <john@example.com> 1234567890 +0000'),
+    ..     (None, b'Commit message here')
+    .. ])
+    >> raw_data = kvlm_serialize(kvlm)
+    >> print(raw_data)
+    b'tree abc123\\nparent def456\\nparent ghi789\\n' 
+    b'author John Doe <john@example.com> 1234567890 +0000\\n\\n'
+    b'Commit message here\\n'
+
+    Notes:
+    ------
+    - Multi-line values are formatted with continuation lines, 
+      where newlines are followed by a space.
+    - The commit message is preceded and followed by a blank line, 
+      as required by the KVLM format.
+    - Fields with multiple entries (e.g., 'parent') are serialized individually.
+
+    Raises:
+    -------
+    KeyError
+        If the None key (commit message) is missing in the input dictionary.
+    """
+    obj = b''
+
+    for key in kvlm.keys():
+        if key == None:
+            continue
+
+        value = kvlm[key]
+        if type(value) != list:
+            value = [value]
+        
+        for val in value:
+            obj += key + b' ' + (val.replace(b'\n', b'\n ')) + b'\n'
+    
+    obj = b'\n' + kvlm[None] + b'\n'
+    return obj
+
+def kvlm_parse(raw, start=0, _dict=None):
     """
     Parses raw commit data in the Key-Value List with Message (KVLM) format.
     
@@ -608,15 +678,15 @@ def key_value_list_message(raw, start=0, _dict=None):
 
     Example:
     --------
-    >>> raw_data = b'tree abc123\\nparent def456\\nparent ghi789\\n' \
+    >> raw_data = b'tree abc123\\nparent def456\\nparent ghi789\\n' \
                    b'author John Doe <john@example.com> 1234567890 +0000\\n' \
                    b'\\ngpgsig -----BEGIN PGP SIGNATURE-----\\n \\niQIzBA...'
-    >>> result = key_value_list_message(raw_data)
-    >>> print(result[b'tree'])
+    >> result = key_value_list_message(raw_data)
+    >> print(result[b'tree'])
     b'abc123'
-    >>> print(result[b'parent'])
+    >> print(result[b'parent'])
     [b'def456', b'ghi789']
-    >>> print(result[None])
+    >> print(result[None])
     b'-----BEGIN PGP SIGNATURE-----\\niQIzBA...'
 
     Notes:
@@ -659,7 +729,7 @@ def key_value_list_message(raw, start=0, _dict=None):
     else:
         _dict[key] = value
     
-    return key_value_list_message(raw, start=end+1, _dict=_dict)
+    return kvlm_parse(raw, start=end+1, _dict=_dict)
 
 #------------------------------------------------------------------------------------------------#
 #                                     Bridging Functions                                         #
