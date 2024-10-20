@@ -535,6 +535,37 @@ def cat_file(repo, obj, object_type=None):
     sys.stdout.buffer.write(obj.serialize())
 
 def object_hash(file, object_type, repo=None):
+    """
+    Reads the content of a file, creates a corresponding Git object, and returns its SHA-1 hash.
+
+    This function reads the binary content of a file (e.g., a file on disk), creates a Git object 
+    (e.g., blob, commit, tag, or tree) based on the specified `object_type`, and then computes the 
+    SHA-1 hash of the object. Optionally, if a repository is provided, the object is stored in the 
+    `.git/objects/` directory.
+
+    Args:
+        file (file-like object): A file-like object from which the content will be read. It should be opened in binary mode.
+        object_type (bytes): The type of the Git object to create (e.g., `b'blob'`, `b'commit'`, `b'tag'`, `b'tree'`).
+        repo (GitRepository, optional): The repository where the object will be stored, if provided. Defaults to None.
+
+    Returns:
+        str: The SHA-1 hash of the serialized object.
+
+    Raises:
+        Exception: If an unknown `object_type` is provided.
+
+    Example:
+        >> with open("example.txt", "rb") as file:
+        >>     sha = object_hash(file, b'blob', repo)
+        >>     print(sha)
+        'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391'  # The SHA-1 hash of the object.
+    
+    Explanation:
+        1. The file is read, and the binary content is loaded into memory.
+        2. A corresponding Git object is created based on the provided `object_type`.
+        3. The object is written to the repository (if `repo` is provided) and its SHA-1 hash is computed.
+        4. The function returns the computed SHA-1 hash of the object.
+    """
     data = file.read()
 
     match object_type:
@@ -545,6 +576,90 @@ def object_hash(file, object_type, repo=None):
         case _          : raise Exception(f"Unknown type {object_type}")
     
     return object_write(obj, repo)
+
+def key_value_list_message(raw, start=0, _dict=None):
+    """
+    Parses raw commit data in the Key-Value List with Message (KVLM) format.
+    
+    The KVLM format is used in Git commit and tag objects, consisting of key-value 
+    pairs followed by a message. This function handles multi-line values, 
+    continuation lines, and fields with multiple values.
+
+    The function is recursive and processes the raw data until it reaches 
+    the commit message, storing key-value pairs in an ordered dictionary.
+
+    Parameters:
+    -----------
+    raw : bytes
+        The raw commit data as a byte string.
+    start : int, optional
+        The starting index for parsing (default is 0).
+    _dict : OrderedDict, optional
+        An ordered dictionary to store the parsed key-value pairs 
+        (default is None, which initializes a new OrderedDict).
+
+    Returns:
+    --------
+    OrderedDict
+        An ordered dictionary containing the parsed key-value pairs, 
+        with the commit message stored under the None key.
+        - Keys are bytes representing the metadata fields.
+        - Values can be bytes or lists of bytes for fields with multiple entries.
+
+    Example:
+    --------
+    >>> raw_data = b'tree abc123\\nparent def456\\nparent ghi789\\n' \
+                   b'author John Doe <john@example.com> 1234567890 +0000\\n' \
+                   b'\\ngpgsig -----BEGIN PGP SIGNATURE-----\\n \\niQIzBA...'
+    >>> result = key_value_list_message(raw_data)
+    >>> print(result[b'tree'])
+    b'abc123'
+    >>> print(result[b'parent'])
+    [b'def456', b'ghi789']
+    >>> print(result[None])
+    b'-----BEGIN PGP SIGNATURE-----\\niQIzBA...'
+
+    Notes:
+    ------
+    - Handles continuation lines by replacing leading spaces with newlines.
+    - Uses recursion to parse through the entire KVLM structure.
+    - The commit message is stored under the None key after parsing key-value pairs.
+
+    Raises:
+    -------
+    AssertionError
+        If the new line position is not equal to the starting position, 
+        indicating an invalid KVLM format.
+    """
+    if not _dict:
+        _dict = collections.OrderedDict()
+    
+    space = raw.find(b' ', start)
+    new_line = raw.find(b'\n', start)
+
+    if space < 0 or new_line < space:
+        assert new_line == start
+        _dict[None] = raw[start + 1]
+        return _dict
+    
+    key = raw[start:space]
+    end = start
+    while True:
+        end = raw.find(b'\n', end + 1)
+        if raw[end + 1] != ord(' '):
+            break
+    
+    value = raw[space+1:end].replace(b'\n ', b'\n')
+
+    if key in _dict:
+        if type(_dict[key]) == list:
+            _dict[key].append(value)
+        else:
+            _dict[key] = [_dict[key], value]
+    else:
+        _dict[key] = value
+    
+    return key_value_list_message(raw, start=end+1, _dict=_dict)
 
 #------------------------------------------------------------------------------------------------#
 #                                     Bridging Functions                                         #
