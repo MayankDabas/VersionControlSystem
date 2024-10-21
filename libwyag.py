@@ -39,6 +39,10 @@ argsp.add_argument("-t", metavar="type", dest="type", choices=["blob", "commit",
 argsp.add_argument("-w", dest="write", action="store_true", help="Write the object into the database")
 argsp.add_argument("path", help="Read object from <file>")
 
+#  argparser for log command
+argsp = argsubparsers.add_parser("log", help="Display history of the given commit")
+argsp.add_argument("commit", default="HEAD", nargs="?", help="Commit to start at.")
+
 #------------------------------------------------------------------------------------------------#
 #                                     Classes                                                    #
 #------------------------------------------------------------------------------------------------#
